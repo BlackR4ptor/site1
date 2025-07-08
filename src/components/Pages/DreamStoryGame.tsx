@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Trophy, Moon, Sun, Coffee, Smartphone, Bed, Volume2, VolumeX, Star, Award, Heart, Users, Briefcase, Home, Dumbbell, Utensils, Droplets, Bath, Tv, Book, ChevronLeft, ChevronRight, Clock, Save } from 'lucide-react';
+import { ArrowLeft, Trophy, Moon, Sun, Coffee, Smartphone, Bed, Volume2, VolumeX, Star, Award, Heart, Users, Briefcase, Home, Dumbbell, Utensils, Droplets, Bath, Tv, Book, ChevronLeft, ChevronRight, Clock, Save, Pause, Play } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
 import situacoesData from '../../data/situacoes_jogo_alex_40_completo.json';
 
@@ -38,6 +38,7 @@ interface GameState {
   gameCompleted: boolean;
   soundEnabled: boolean;
   musicEnabled: boolean;
+  isPaused: boolean;
   currentRoom: string;
   alex: {
     health: number;
@@ -113,6 +114,7 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
     gameCompleted: false,
     soundEnabled: true,
     musicEnabled: true,
+    isPaused: false,
     currentRoom: 'bedroom',
     alex: {
       health: 50,
@@ -260,8 +262,12 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
 
   // Game time progression (1 second real = 15 minutes game time)
   useEffect(() => {
+    if (gameState.isPaused) return; // Don't progress time when paused
+    
     gameTimeIntervalRef.current = setInterval(() => {
       setGameState(prev => {
+        if (prev.isPaused) return prev; // Double check pause state
+        
         const newGameTime = new Date(prev.gameTime);
         newGameTime.setMinutes(newGameTime.getMinutes() + 15); // Add 15 minutes every second
         
@@ -299,6 +305,7 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
   // Check for random situations
   useEffect(() => {
     const checkForSituacao = () => {
+      if (gameState.isPaused) return; // Don't check situations when paused
       if (showSituacao.show) return; // Don't show if already showing one
       
       const currentTime = gameState.gameTime;
@@ -338,7 +345,7 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
 
     const interval = setInterval(checkForSituacao, 2000); // Check every 2 seconds
     return () => clearInterval(interval);
-  }, [gameState.gameTime, gameState.situacoesOcorridas, showSituacao.show]);
+  }, [gameState.gameTime, gameState.situacoesOcorridas, showSituacao.show, gameState.isPaused]);
 
   // Handle music play/pause
   useEffect(() => {
@@ -445,6 +452,10 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
 
   const handleActionClick = (action: RoomAction) => {
     handleFirstInteraction();
+    
+    // Prevent actions when game is paused
+    if (gameState.isPaused) return;
+    
     playSound('button');
     
     // Check if action already performed today
@@ -468,6 +479,9 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
 
   const confirmAction = (confirmed: boolean) => {
     handleFirstInteraction();
+    
+    // Prevent actions when game is paused
+    if (gameState.isPaused) return;
     
     if (!confirmed) {
       setShowConfirmation({ show: false, action: '', actionId: 'sleep', room: '' });
@@ -529,6 +543,9 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
 
   const handleSituacaoResponse = (escolha: 'sim' | 'nao') => {
     if (!showSituacao.situacao) return;
+    
+    // Prevent actions when game is paused
+    if (gameState.isPaused) return;
 
     const situacao = showSituacao.situacao;
     const opcao = situacao.opcoes[escolha];
@@ -674,6 +691,7 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
       gameCompleted: false,
       soundEnabled: gameState.soundEnabled,
       musicEnabled: gameState.musicEnabled,
+      isPaused: false,
       currentRoom: 'bedroom',
       alex: {
         health: 50,
@@ -753,6 +771,13 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
     loadGame();
   }, []);
 
+  const togglePause = () => {
+    setGameState(prev => ({
+      ...prev,
+      isPaused: !prev.isPaused
+    }));
+  };
+
   const toggleMusic = () => {
     setGameState(prev => ({ ...prev, musicEnabled: !prev.musicEnabled }));
   };
@@ -804,14 +829,32 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
               {/* Save Game Button */}
               <button
                 onClick={() => setShowSaveConfirmation(true)}
+                disabled={gameState.isPaused}
+                className={`p-2 rounded-lg transition-colors ${
+                  gameState.isPaused
+                    ? isDark 
+                      ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed' 
+                      : 'bg-gray-200/50 text-gray-500 cursor-not-allowed'
+                    : isDark 
+                      ? 'bg-slate-800 hover:bg-slate-700 text-white' 
+                      : 'bg-gray-200 hover:bg-gray-300 text-gray-900'
+                }`}
+                title={gameState.isPaused ? "Não é possível salvar durante o pause" : "Salvar jogo"}
+              >
+                <Save className="w-4 h-4" />
+              </button>
+
+              {/* Pause/Play Button */}
+              <button
+                onClick={togglePause}
                 className={`p-2 rounded-lg transition-colors ${
                   isDark 
                     ? 'bg-slate-800 hover:bg-slate-700 text-white' 
                     : 'bg-gray-200 hover:bg-gray-300 text-gray-900'
                 }`}
-                title="Salvar jogo"
+                title={gameState.isPaused ? 'Retomar jogo' : 'Pausar jogo'}
               >
-                <Save className="w-4 h-4" />
+                {gameState.isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
               </button>
 
               {/* Music Toggle */}
@@ -934,10 +977,15 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
           {/* Room Navigation */}
           <button
             onClick={() => navigateRoom('left')}
+            disabled={gameState.isPaused}
             className={`absolute left-4 top-1/2 transform -translate-y-1/2 p-3 rounded-full transition-all duration-200 hover:scale-110 z-30 backdrop-blur-sm ${
-              isDark 
-                ? 'bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-600' 
-                : 'bg-white/90 hover:bg-gray-100 text-gray-900 border border-gray-200 shadow-lg'
+              gameState.isPaused
+                ? isDark 
+                  ? 'bg-slate-800/30 text-slate-600 cursor-not-allowed border border-slate-700' 
+                  : 'bg-white/50 text-gray-500 cursor-not-allowed border border-gray-300 shadow-lg'
+                : isDark 
+                  ? 'bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-600' 
+                  : 'bg-white/90 hover:bg-gray-100 text-gray-900 border border-gray-200 shadow-lg'
             }`}
           >
             <ChevronLeft className="w-6 h-6" />
@@ -945,14 +993,47 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
 
           <button
             onClick={() => navigateRoom('right')}
+            disabled={gameState.isPaused}
             className={`absolute right-4 top-1/2 transform -translate-y-1/2 p-3 rounded-full transition-all duration-200 hover:scale-110 z-30 backdrop-blur-sm ${
-              isDark 
-                ? 'bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-600' 
-                : 'bg-white/90 hover:bg-gray-100 text-gray-900 border border-gray-200 shadow-lg'
+              gameState.isPaused
+                ? isDark 
+                  ? 'bg-slate-800/30 text-slate-600 cursor-not-allowed border border-slate-700' 
+                  : 'bg-white/50 text-gray-500 cursor-not-allowed border border-gray-300 shadow-lg'
+                : isDark 
+                  ? 'bg-slate-800/80 hover:bg-slate-700 text-white border border-slate-600' 
+                  : 'bg-white/90 hover:bg-gray-100 text-gray-900 border border-gray-200 shadow-lg'
             }`}
           >
             <ChevronRight className="w-6 h-6" />
           </button>
+
+          {/* Pause Overlay */}
+          {gameState.isPaused && (
+            <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-40 backdrop-blur-sm">
+              <div className={`text-center p-8 rounded-2xl border transition-colors duration-300 ${
+                isDark 
+                  ? 'bg-slate-900/90 border-slate-700 text-white' 
+                  : 'bg-white/90 border-gray-200 text-gray-900 shadow-lg'
+              }`}>
+                <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Pause className="w-8 h-8 text-emerald-400" />
+                </div>
+                <h3 className="text-xl font-bold mb-2">Jogo Pausado</h3>
+                <p className={`text-sm mb-6 transition-colors duration-300 ${
+                  isDark ? 'text-slate-400' : 'text-gray-600'
+                }`}>
+                  Clique no botão de play para continuar
+                </p>
+                <button
+                  onClick={togglePause}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold transition-colors flex items-center gap-2 mx-auto"
+                >
+                  <Play className="w-5 h-5" />
+                  Continuar
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Alex Character */}
           <div className="pixel-character">
@@ -983,7 +1064,7 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
           </div>
 
           {/* Confirmation Modal */}
-          {showConfirmation.show && (
+          {showConfirmation.show && !gameState.isPaused && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
               <div className={`backdrop-blur-sm rounded-2xl p-6 border max-w-sm mx-4 transition-colors duration-300 ${
                 isDark 
@@ -1025,7 +1106,7 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
           )}
 
           {/* Situação Modal */}
-          {showSituacao.show && showSituacao.situacao && (
+          {showSituacao.show && showSituacao.situacao && !gameState.isPaused && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
               <div className={`backdrop-blur-sm rounded-2xl p-6 border max-w-md mx-4 transition-colors duration-300 ${
                 isDark 
@@ -1130,7 +1211,7 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
           )}
 
           {/* Feedback Modal */}
-          {showFeedback.show && (
+          {showFeedback.show && !gameState.isPaused && (
             <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
               <div className={`backdrop-blur-sm rounded-2xl p-6 border max-w-sm mx-4 transition-colors duration-300 ${
                 showFeedback.type === 'positive'
