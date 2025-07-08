@@ -1,9 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Trophy, Moon, Sun, Coffee, Smartphone, Bed, Volume2, VolumeX, Star, Award, Heart, Users, Briefcase, Home, Dumbbell, Utensils, Droplets, Bath, Tv, Book, ChevronLeft, ChevronRight, Clock, Save } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme';
+import situacoesData from '../../data/situacoes_jogo_alex_40_completo.json';
 
 interface DreamStoryGameProps {
   onBack: () => void;
+}
+
+interface Situacao {
+  id: number;
+  titulo: string;
+  descricao: string;
+  dia_semana: string[];
+  horario_inicio: string;
+  horario_fim: string;
+  ocorrida: boolean;
+  opcoes: {
+    sim: {
+      efeitos: {
+        [key: string]: number;
+      };
+      mensagem: string;
+    };
+    nao: {
+      efeitos: {
+        [key: string]: number;
+      };
+      mensagem: string;
+    };
+  };
 }
 
 interface GameState {
@@ -31,6 +56,7 @@ interface GameState {
     shower: boolean;
   };
   lastActionTime: Date;
+  situacoesOcorridas: number[];
 }
 
 interface Room {
@@ -71,12 +97,11 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
   
   const [alexAnimation, setAlexAnimation] = useState<string>('idle');
   const [musicLoaded, setMusicLoaded] = useState(false);
-  const [showOutsideAction, setShowOutsideAction] = useState<{
+  
+  const [showSituacao, setShowSituacao] = useState<{
     show: boolean;
-    message: string;
-    consequence: string;
-    points: number;
-  }>({ show: false, message: '', consequence: '', points: 0 });
+    situacao: Situacao | null;
+  }>({ show: false, situacao: null });
   
   const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
@@ -105,7 +130,8 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
       drinkWater: false,
       shower: false
     },
-    lastActionTime: new Date()
+    lastActionTime: new Date(),
+    situacoesOcorridas: []
   });
 
   const rooms: Room[] = [
@@ -270,6 +296,50 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
     };
   }, []);
 
+  // Check for random situations
+  useEffect(() => {
+    const checkForSituacao = () => {
+      if (showSituacao.show) return; // Don't show if already showing one
+      
+      const currentTime = gameState.gameTime;
+      const currentHour = currentTime.getHours();
+      const currentMinute = currentTime.getMinutes();
+      const currentTimeString = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
+      
+      // Get current day of week in Portuguese
+      const daysOfWeek = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+      const currentDayOfWeek = daysOfWeek[currentTime.getDay()];
+      
+      // Filter available situations
+      const availableSituacoes = situacoesData.filter((situacao: Situacao) => {
+        // Check if already occurred
+        if (gameState.situacoesOcorridas.includes(situacao.id)) return false;
+        
+        // Check day of week
+        if (!situacao.dia_semana.includes(currentDayOfWeek)) return false;
+        
+        // Check time range
+        const startTime = situacao.horario_inicio;
+        const endTime = situacao.horario_fim;
+        
+        if (currentTimeString >= startTime && currentTimeString <= endTime) {
+          return true;
+        }
+        
+        return false;
+      });
+      
+      // Random chance to trigger a situation (10% chance every check)
+      if (availableSituacoes.length > 0 && Math.random() < 0.1) {
+        const randomSituacao = availableSituacoes[Math.floor(Math.random() * availableSituacoes.length)];
+        setShowSituacao({ show: true, situacao: randomSituacao });
+      }
+    };
+
+    const interval = setInterval(checkForSituacao, 2000); // Check every 2 seconds
+    return () => clearInterval(interval);
+  }, [gameState.gameTime, gameState.situacoesOcorridas, showSituacao.show]);
+
   // Handle music play/pause
   useEffect(() => {
     if (backgroundMusicRef.current && musicLoaded) {
@@ -388,20 +458,6 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
       return;
     }
 
-    // Special actions that take Alex outside
-    if (action.id === 'relax' && Math.random() > 0.5) {
-      // Sometimes relaxing means going out with friends
-      setShowOutsideAction({
-        show: true,
-        message: "Alex foi para a balada com os amigos.",
-        consequence: Math.random() > 0.5 
-          ? "Parabéns! Alex fez novos amigos e se divertiu! Ganhou 15 pontos!"
-          : "Oh não! Alex ficou cansado e perdeu qualidade de sono. Sua pontuação caiu 10 pontos!",
-        points: Math.random() > 0.5 ? 15 : -10
-      });
-      return;
-    }
-
     setShowConfirmation({
       show: true,
       action: action.description,
@@ -471,25 +527,40 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
     }, 3000);
   };
 
-  const handleOutsideActionOK = () => {
-    const { points, consequence } = showOutsideAction;
+  const handleSituacaoResponse = (escolha: 'sim' | 'nao') => {
+    if (!showSituacao.situacao) return;
+
+    const situacao = showSituacao.situacao;
+    const opcao = situacao.opcoes[escolha];
     
-    // Apply consequences
+    // Calculate points based on effects
+    let points = 0;
+    Object.values(opcao.efeitos).forEach(value => {
+      points += value * 10; // Convert effect values to points
+    });
+
+    // Apply effects to Alex
     setGameState(prev => {
       const newAlex = { ...prev.alex };
       
-      if (points > 0) {
-        newAlex.relationships += 15;
-        newAlex.health += 5;
-      } else {
-        newAlex.sleepQuality -= 20;
-        newAlex.energy -= 15;
-      }
-      
-      // Clamp values
-      Object.keys(newAlex).forEach(key => {
-        if (typeof (newAlex as any)[key] === 'number') {
-          (newAlex as any)[key] = Math.max(0, Math.min(100, (newAlex as any)[key]));
+      // Map JSON effects to game stats
+      Object.entries(opcao.efeitos).forEach(([key, value]) => {
+        switch (key) {
+          case 'saude':
+            newAlex.health = Math.max(0, Math.min(100, newAlex.health + (value * 10)));
+            break;
+          case 'sono':
+            newAlex.sleepQuality = Math.max(0, Math.min(100, newAlex.sleepQuality + (value * 10)));
+            break;
+          case 'energia':
+            newAlex.energy = Math.max(0, Math.min(100, newAlex.energy + (value * 10)));
+            break;
+          case 'social':
+            newAlex.relationships = Math.max(0, Math.min(100, newAlex.relationships + (value * 10)));
+            break;
+          case 'produtividade':
+            newAlex.productivity = Math.max(0, Math.min(100, newAlex.productivity + (value * 10)));
+            break;
         }
       });
 
@@ -499,26 +570,27 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
         ...prev,
         score: Math.max(0, prev.score + points),
         alex: newAlex,
-        dailyActions: {
-          ...prev.dailyActions,
-          relax: true
-        },
-        currentRoom: 'living' // Alex returns to living room
+        situacoesOcorridas: [...prev.situacoesOcorridas, situacao.id]
       };
     });
 
     // Show feedback
     setShowFeedback({
       show: true,
-      message: consequence,
-      type: points > 0 ? 'positive' : 'negative'
+      message: opcao.mensagem,
+      type: points >= 0 ? 'positive' : 'negative'
     });
 
-    setShowOutsideAction({ show: false, message: '', consequence: '', points: 0 });
+    // Play sound
+    playSound(points >= 0 ? 'positive' : 'negative');
 
+    // Hide situation modal
+    setShowSituacao({ show: false, situacao: null });
+
+    // Hide feedback after 4 seconds
     setTimeout(() => {
       setShowFeedback({ show: false, message: '', type: 'positive' });
-    }, 3000);
+    }, 4000);
   };
 
   const getActionEffects = (action: keyof GameState['dailyActions']) => {
@@ -619,11 +691,13 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
         drinkWater: false,
         shower: false
       },
-      lastActionTime: new Date()
+      lastActionTime: new Date(),
+      situacoesOcorridas: []
     });
     setAlexAnimation('idle');
     setShowFeedback({ show: false, message: '', type: 'positive' });
     setShowConfirmation({ show: false, action: '', actionId: 'sleep', room: '' });
+    setShowSituacao({ show: false, situacao: null });
   };
 
   const saveGame = () => {
@@ -950,10 +1024,10 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
             </div>
           )}
 
-          {/* Outside Action Modal */}
-          {showOutsideAction.show && (
+          {/* Situação Modal */}
+          {showSituacao.show && showSituacao.situacao && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-              <div className={`backdrop-blur-sm rounded-2xl p-6 border max-w-sm mx-4 transition-colors duration-300 ${
+              <div className={`backdrop-blur-sm rounded-2xl p-6 border max-w-md mx-4 transition-colors duration-300 ${
                 isDark 
                   ? 'bg-slate-900/90 border-slate-800' 
                   : 'bg-white/90 border-gray-200 shadow-lg'
@@ -962,23 +1036,36 @@ const DreamStoryGame: React.FC<DreamStoryGameProps> = ({ onBack }) => {
                   <h3 className={`text-lg font-bold mb-3 transition-colors duration-300 ${
                     isDark ? 'text-white' : 'text-gray-900'
                   }`}>
-                    Alex saiu de casa!
+                    {showSituacao.situacao.titulo}
                   </h3>
                   <p className={`text-sm mb-6 transition-colors duration-300 ${
                     isDark ? 'text-slate-300' : 'text-gray-700'
                   }`}>
-                    {showOutsideAction.message}
+                    {showSituacao.situacao.descricao}
                   </p>
-                  <button
-                    onClick={handleOutsideActionOK}
-                    className="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-3 rounded-xl font-medium transition-colors"
-                  >
-                    OK
-                  </button>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => handleSituacaoResponse('nao')}
+                      className={`flex-1 px-4 py-3 rounded-xl font-medium transition-colors ${
+                        isDark 
+                          ? 'bg-slate-800 hover:bg-slate-700 text-white' 
+                          : 'bg-gray-200 hover:bg-gray-300 text-gray-900'
+                      }`}
+                    >
+                      Não
+                    </button>
+                    <button
+                      onClick={() => handleSituacaoResponse('sim')}
+                      className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-3 rounded-xl font-medium transition-colors"
+                    >
+                      Sim
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           )}
+
           {showSaveConfirmation && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
               <div className={`backdrop-blur-sm rounded-2xl p-6 border max-w-sm mx-4 transition-colors duration-300 ${
